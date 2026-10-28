@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -96,6 +99,14 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
     val pending = s.tasks.filter { !it.done }
     val resolved = s.tasks.filter { it.done }
 
+    fun onLongPressTask(task: DayTask) {
+        if (task.date.isAfter(s.today)) {
+            scope.launch { snackbar.showSnackbar("ยังไม่ถึงวันนี้") }
+        } else {
+            manageTask = task
+        }
+    }
+
     fun onTapTask(task: DayTask) {
         when {
             task.done -> manageTask = task
@@ -141,9 +152,14 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (pending.isNotEmpty()) {
-                    item { SectionTitle("ต้องเช็ค") }
                     item {
-                        TaskCard(pending, s, onTap = ::onTapTask)
+                        Column {
+                            SectionTitle("ต้องเช็ค")
+                            Text("กดเพื่อเช็ค · กดค้างเพื่อข้ามหรือระบุเวลา", fontSize = 13.sp, color = Muted)
+                        }
+                    }
+                    item {
+                        TaskCard(pending, s, onTap = ::onTapTask, onLongPress = ::onLongPressTask)
                     }
                 }
                 if (resolved.isNotEmpty()) {
@@ -152,13 +168,13 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
                             Modifier.fillMaxWidth().clickable { showResolved = !showResolved }.padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            SectionTitle("เช็คแล้ว (${resolved.size})", Modifier.weight(1f))
+                            SectionTitle("เสร็จแล้ว (${resolved.size})", Modifier.weight(1f))
                             Icon(if (showResolved) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = Muted)
                         }
                     }
                     item {
                         AnimatedVisibility(showResolved) {
-                            TaskCard(resolved, s, onTap = ::onTapTask)
+                            TaskCard(resolved, s, onTap = ::onTapTask, onLongPress = ::onLongPressTask)
                         }
                     }
                 }
@@ -195,18 +211,35 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
     }
 
     manageTask?.let { task ->
+        val close = { manageTask = null }
         AlertDialog(
-            onDismissRequest = { manageTask = null },
+            onDismissRequest = close,
             title = { Text(task.type.label()) },
             text = {
-                Text("บันทึกไว้เวลา ${task.record?.checkedAtMillis?.millisToHhmm()} น.\n(กำหนด ${task.scheduledMinutes.hhmm()} น.)")
+                Column {
+                    Text(
+                        when {
+                            task.skipped -> "สถานะ: ข้าม"
+                            task.checked -> "บันทึกไว้เวลา ${task.record?.checkedAtMillis?.millisToHhmm()} น."
+                            else -> "ยังไม่ได้เช็ค"
+                        } + "\n(กำหนด ${task.scheduledMinutes.hhmm()} น.)",
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    if (!task.done && task.date == s.today) {
+                        DialogAction("เช็คตอนนี้") { vm.checkNow(task); close() }
+                    }
+                    if (!task.date.isAfter(s.today)) {
+                        DialogAction(if (task.checked) "แก้เวลา" else "เช็คแล้ว (ระบุเวลา)") { pickTimeFor = task; close() }
+                    }
+                    if (!task.skipped) {
+                        DialogAction("เปลี่ยนเป็น \"ข้าม\"") { vm.setSkipped(task, true); close() }
+                    }
+                    if (task.done) {
+                        DialogAction("ยกเลิก (กลับเป็นยังไม่เช็ค)", color = MissRed) { vm.uncheck(task); close() }
+                    }
+                }
             },
-            confirmButton = {
-                TextButton(onClick = { pickTimeFor = task; manageTask = null }) { Text("แก้เวลา") }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.uncheck(task); manageTask = null }) { Text("ยกเลิกการเช็ค", color = MissRed) }
-            },
+            confirmButton = { TextButton(onClick = close) { Text("ปิด") } },
         )
     }
 }
@@ -214,6 +247,13 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
 private fun millisMinutes(millis: Long): Int {
     val t = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
     return t.hour * 60 + t.minute
+}
+
+@Composable
+private fun DialogAction(label: String, color: Color = Brown, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label, color = color, fontSize = 16.sp, modifier = Modifier.fillMaxWidth())
+    }
 }
 
 @Composable
@@ -319,7 +359,7 @@ private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun TaskCard(tasks: List<DayTask>, s: TodayState, onTap: (DayTask) -> Unit) {
+private fun TaskCard(tasks: List<DayTask>, s: TodayState, onTap: (DayTask) -> Unit, onLongPress: (DayTask) -> Unit) {
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -327,16 +367,22 @@ private fun TaskCard(tasks: List<DayTask>, s: TodayState, onTap: (DayTask) -> Un
     ) {
         Column(Modifier.padding(vertical = 8.dp)) {
             val showShiftName = tasks.map { it.shiftId }.distinct().size > 1
-            tasks.forEach { task -> TaskRow(task, s, showShiftName, onTap) }
+            tasks.forEach { task -> TaskRow(task, s, showShiftName, onTap, onLongPress) }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TaskRow(task: DayTask, s: TodayState, showShiftName: Boolean, onTap: (DayTask) -> Unit) {
+private fun TaskRow(task: DayTask, s: TodayState, showShiftName: Boolean, onTap: (DayTask) -> Unit, onLongPress: (DayTask) -> Unit) {
     val status = task.status(s.now)
     val overdue = !task.done && s.now.isAfter(task.dueAt)
-    Column(Modifier.fillMaxWidth().clickable { onTap(task) }.padding(horizontal = 20.dp, vertical = 10.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = { onTap(task) }, onLongClick = { onLongPress(task) })
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(task.scheduledMinutes.hhmm(), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF5A504C))
             if (task.scheduledMinutes >= 24 * 60) {
@@ -360,7 +406,8 @@ private fun TaskRow(task: DayTask, s: TodayState, showShiftName: Boolean, onTap:
                 )
                 val sub = buildList {
                     if (showShiftName) add(task.shiftName)
-                    task.record?.let { r ->
+                    if (task.skipped) add("ข้าม")
+                    task.record?.takeIf { !it.skipped }?.let { r ->
                         val diff = r.diffMinutes()
                         val note = when {
                             !r.isOffTime() -> "ตรงเวลา"
@@ -384,7 +431,9 @@ private fun TaskRow(task: DayTask, s: TodayState, showShiftName: Boolean, onTap:
                     )
                 }
             }
-            if (task.done) {
+            if (task.skipped) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "ข้าม", tint = Muted, modifier = Modifier.size(34.dp))
+            } else if (task.done) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = "เช็คแล้ว", tint = CheckGreen, modifier = Modifier.size(34.dp))
             } else {
                 Icon(Icons.Outlined.Circle, contentDescription = "ยังไม่เช็ค", tint = if (overdue) MissRed else Color(0xFFB7AFAB), modifier = Modifier.size(34.dp))

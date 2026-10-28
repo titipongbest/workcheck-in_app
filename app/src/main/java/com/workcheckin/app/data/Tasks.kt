@@ -17,7 +17,10 @@ data class DayTask(
     val record: CheckRecord?,
     val shift: Shift?,
 ) {
+    /** จัดการแล้ว (เช็คหรือข้าม) */
     val done: Boolean get() = record != null
+    val checked: Boolean get() = record?.skipped == false
+    val skipped: Boolean get() = record?.skipped == true
     val date: LocalDate get() = LocalDate.ofEpochDay(epochDay)
 
     /** เวลาที่ควรเช็คจริง (รวมกรณีข้ามวัน) */
@@ -25,7 +28,7 @@ data class DayTask(
         get() = date.atStartOfDay().plusMinutes(sortMinutes.toLong())
 }
 
-enum class DayStatus { DONE, MISSED, PENDING, OFF }
+enum class DayStatus { DONE, SKIPPED, MISSED, PENDING, OFF }
 
 typealias RecordKey = Triple<Long, Long, CheckType>
 
@@ -69,12 +72,13 @@ fun tasksFor(date: LocalDate, shifts: List<Shift>, records: Map<RecordKey, Check
 }
 
 fun DayTask.status(now: LocalDateTime): DayStatus = when {
+    skipped -> DayStatus.SKIPPED
     done -> DayStatus.DONE
     now.isAfter(dueAt.plusHours(4)) || date.isBefore(now.toLocalDate().minusDays(1)) -> DayStatus.MISSED
     else -> DayStatus.PENDING
 }
 
-/** จำนวนวันติดต่อกันที่เช็คครบทุกรายการ (วันที่ไม่มีงานไม่ทำให้สถิติขาด) */
+/** จำนวนวันติดต่อกันที่เช็คครบทุกรายการ (วันที่ไม่มีงาน หรือกดข้าม ไม่ทำให้สถิติขาด) */
 fun streak(today: LocalDate, shifts: List<Shift>, records: Map<RecordKey, CheckRecord>): Int {
     val todayTasks = tasksFor(today, shifts, records).filter { it.shift?.isActiveOn(today) == true }
     // วันนี้ยังเช็คไม่ครบก็ไม่ถือว่าขาด นับต่อจากเมื่อวาน
@@ -99,8 +103,9 @@ fun CheckRecord.diffMinutes(zone: ZoneId = ZoneId.systemDefault()): Long {
     return java.time.Duration.between(due, checked).toMinutes()
 }
 
-/** สายสำหรับขาเข้า / ออกก่อนเวลาสำหรับขาออก */
+/** สายสำหรับขาเข้า / ออกก่อนเวลาสำหรับขาออก (รายการที่ข้ามไม่นับ) */
 fun CheckRecord.isOffTime(): Boolean {
+    if (skipped) return false
     val diff = diffMinutes()
     return if (type == CheckType.IN) diff > 0 else diff < 0
 }

@@ -4,9 +4,16 @@ import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -122,7 +129,7 @@ private fun ChartsTab(s: ProgressState) {
 }
 
 @Composable
-private fun WhiteCard(content: @Composable () -> Unit) {
+private fun WhiteCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -142,6 +149,7 @@ private fun SummaryCard(sum: Summary) {
         Row(Modifier.fillMaxWidth()) {
             Stat("ตรงเวลา", sum.onTime, CheckGreen, Modifier.weight(1f))
             Stat("สาย/ออกก่อน", sum.offTime, Color(0xFFFF9800), Modifier.weight(1f))
+            Stat("ข้าม", sum.skipped, Color(0xFFB26A00), Modifier.weight(1f))
             Stat("ไม่ได้เช็ค", sum.missed, MissRed, Modifier.weight(1f))
         }
     }
@@ -157,32 +165,98 @@ private fun Stat(label: String, value: Int, color: Color, modifier: Modifier) {
 
 @Composable
 private fun WeekCard(chart: WeekChart, s: ProgressState, showShiftName: Boolean) {
+    var expanded by rememberSaveable(chart.shift.id, chart.type) { mutableStateOf(false) }
+    val canExpand = chart.days.size > 7
     WhiteCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().clickable(enabled = canExpand) { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(chart.type.icon(), null, tint = DarkBrown, modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(10.dp))
-            Text(chart.type.label(), fontSize = 22.sp, color = DarkBrown, fontWeight = FontWeight.Medium)
+            Text(chart.type.label(), fontSize = 22.sp, color = DarkBrown, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            if (canExpand) {
+                Icon(
+                    if (expanded) Icons.Outlined.ExpandLess else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = if (expanded) "ย่อ" else "ดูทั้งหมด",
+                    tint = Muted,
+                )
+            }
         }
         Text(
-            (if (showShiftName) "${chart.shift.name} · " else "") + "7 วันล่าสุด",
+            (if (showShiftName) "${chart.shift.name} · " else "") +
+                if (expanded) "ทั้งหมด ${chart.days.size} วัน" else "7 วันล่าสุด",
             color = Muted, fontSize = 15.sp, modifier = Modifier.padding(start = 36.dp, top = 2.dp),
         )
         Spacer(Modifier.height(16.dp))
+        if (!expanded) {
+            Row(Modifier.fillMaxWidth()) {
+                chart.last7.forEach { (date, status) ->
+                    val isToday = date == s.today
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            date.dayOfWeek.thaiShort(),
+                            fontSize = 15.sp,
+                            color = if (isToday) Color.White else Muted,
+                            fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .background(if (isToday) Brown else Color.Transparent, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        StatusDot(status, highlight = isToday)
+                    }
+                }
+            }
+        } else {
+            ExpandedHistory(chart, s)
+        }
+        if (canExpand) {
+            TextButton(onClick = { expanded = !expanded }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text(if (expanded) "ย่อ" else "ดูทั้งหมด", color = Brown)
+            }
+        }
+    }
+}
+
+/** ตารางย้อนหลังทั้งหมด จัดเป็นแถวละสัปดาห์ (อา.-ส.) สัปดาห์ล่าสุดอยู่บน */
+@Composable
+private fun ExpandedHistory(chart: WeekChart, s: ProgressState) {
+    val byDate = chart.days.toMap()
+    val first = chart.days.first().first.weekStart()
+    val weeks = generateSequence(s.today.weekStart()) { it.minusWeeks(1) }
+        .takeWhile { !it.isBefore(first) }
+        .toList()
+    val counts = chart.days.groupingBy { it.second }.eachCount()
+    Text(
+        "เช็ค ${counts[DayStatus.DONE] ?: 0} · ข้าม ${counts[DayStatus.SKIPPED] ?: 0} · ไม่ได้เช็ค ${counts[DayStatus.MISSED] ?: 0}",
+        fontSize = 14.sp, color = Muted,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth()) {
+        WeekOrder.forEach { day ->
+            Text(
+                day.thaiShort(), fontSize = 13.sp, color = Muted, modifier = Modifier.weight(1f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+    }
+    weeks.forEach { weekStart ->
+        Text(
+            "${weekStart.thaiShortDate()} - ${weekStart.plusDays(6).thaiShortDate()}",
+            fontSize = 12.sp, color = Muted, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+        )
         Row(Modifier.fillMaxWidth()) {
-            chart.days.forEach { (date, status) ->
-                val isToday = date == s.today
+            (0..6L).forEach { i ->
+                val date = weekStart.plusDays(i)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        date.dayOfWeek.thaiShort(),
-                        fontSize = 15.sp,
-                        color = if (isToday) Color.White else Muted,
-                        fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
-                        modifier = Modifier
-                            .background(if (isToday) Brown else Color.Transparent, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 2.dp),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    StatusDot(status, highlight = isToday)
+                    val status = byDate[date]
+                    if (status != null) {
+                        StatusDot(status, highlight = date == s.today, size = 36.dp)
+                    } else {
+                        Spacer(Modifier.size(36.dp))
+                    }
+                    Text("${date.dayOfMonth}", fontSize = 11.sp, color = Muted)
                 }
             }
         }
@@ -190,10 +264,10 @@ private fun WeekCard(chart: WeekChart, s: ProgressState, showShiftName: Boolean)
 }
 
 @Composable
-private fun StatusDot(status: DayStatus, highlight: Boolean) {
+private fun StatusDot(status: DayStatus, highlight: Boolean, size: Dp = 44.dp) {
     Box(
         Modifier
-            .size(44.dp)
+            .size(size)
             .then(if (highlight) Modifier.border(2.dp, Brown, CircleShape).padding(4.dp) else Modifier.padding(4.dp)),
         contentAlignment = Alignment.Center,
     ) {
@@ -203,6 +277,9 @@ private fun StatusDot(status: DayStatus, highlight: Boolean) {
             }
             DayStatus.MISSED -> Box(Modifier.fillMaxSize().background(LightGrey, CircleShape), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Close, null, tint = Color(0xFF6E6865), modifier = Modifier.size(22.dp))
+            }
+            DayStatus.SKIPPED -> Box(Modifier.fillMaxSize().background(Color(0xFFFFE8C2), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.SkipNext, null, tint = Color(0xFFB26A00), modifier = Modifier.size(22.dp))
             }
             DayStatus.PENDING -> Box(Modifier.fillMaxSize().border(2.dp, LightGrey, CircleShape))
             DayStatus.OFF -> Box(Modifier.size(12.dp).background(LightGrey, CircleShape))
@@ -310,6 +387,8 @@ private fun HistoryRow(t: DayTask) {
         Column(horizontalAlignment = Alignment.End) {
             if (r == null) {
                 Text("ไม่ได้เช็ค", color = MissRed, fontWeight = FontWeight.SemiBold)
+            } else if (r.skipped) {
+                Text("ข้าม", color = Color(0xFFB26A00), fontWeight = FontWeight.SemiBold)
             } else {
                 Text(r.checkedAtMillis.millisToHhmm(), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = DarkBrown)
                 val diff = r.diffMinutes()

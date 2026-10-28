@@ -51,6 +51,11 @@ object ReminderScheduler {
         setAlarm(context, shift.id, type, epochDay, followUp = true, at = LocalDateTime.now().plusMinutes(shift.followUpMinutes.toLong()))
     }
 
+    /** กด "เตือนอีก X นาที" จากการแจ้งเตือน: ใช้ช่องเดียวกับการเตือนซ้ำ */
+    fun snooze(context: Context, shiftId: Long, type: CheckType, epochDay: Long, minutes: Long) {
+        setAlarm(context, shiftId, type, epochDay, followUp = true, at = LocalDateTime.now().plusMinutes(minutes))
+    }
+
     /** คืนค่า (เวลาที่ต้องเตือน, วันทำงาน) */
     fun nextOccurrence(shift: Shift, type: CheckType, after: LocalDateTime): Pair<LocalDateTime, LocalDate>? {
         if (!shift.enabled || shift.daysMask == 0) return null

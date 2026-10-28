@@ -32,11 +32,19 @@ class Repository(private val context: Context) {
         ReminderScheduler.cancelShift(context, shift.id)
     }
 
-    suspend fun check(shift: Shift, type: CheckType, epochDay: Long, atMillis: Long = System.currentTimeMillis()) {
-        check(shift.id, shift.name, type, epochDay, shift.offsetMinutesFor(type), atMillis)
+    suspend fun check(shift: Shift, type: CheckType, epochDay: Long, atMillis: Long = System.currentTimeMillis(), skipped: Boolean = false) {
+        check(shift.id, shift.name, type, epochDay, shift.offsetMinutesFor(type), atMillis, skipped)
     }
 
-    suspend fun check(shiftId: Long, shiftName: String, type: CheckType, epochDay: Long, scheduledMinutes: Int, atMillis: Long) {
+    suspend fun check(
+        shiftId: Long,
+        shiftName: String,
+        type: CheckType,
+        epochDay: Long,
+        scheduledMinutes: Int,
+        atMillis: Long,
+        skipped: Boolean = false,
+    ) {
         val existing = db.recordDao().find(shiftId, epochDay, type)
         db.recordDao().upsert(
             CheckRecord(
@@ -47,6 +55,7 @@ class Repository(private val context: Context) {
                 epochDay = epochDay,
                 scheduledMinutes = scheduledMinutes,
                 checkedAtMillis = atMillis,
+                skipped = skipped,
             )
         )
         ReminderScheduler.cancelFollowUp(context, shiftId, type)
@@ -55,6 +64,12 @@ class Repository(private val context: Context) {
 
     suspend fun isChecked(shiftId: Long, epochDay: Long, type: CheckType): Boolean =
         db.recordDao().find(shiftId, epochDay, type) != null
+
+    /** สลับสถานะ เช็คแล้ว <-> ข้าม โดยเก็บเวลาเดิมไว้ */
+    suspend fun setSkipped(shiftId: Long, epochDay: Long, type: CheckType, skipped: Boolean) {
+        val existing = db.recordDao().find(shiftId, epochDay, type) ?: return
+        db.recordDao().upsert(existing.copy(skipped = skipped))
+    }
 
     suspend fun uncheck(shiftId: Long, epochDay: Long, type: CheckType) {
         db.recordDao().delete(shiftId, epochDay, type)

@@ -46,7 +46,7 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 }
 
-/** ปุ่ม "บันทึกแล้ว" บนการแจ้งเตือน: บันทึกเวลาปัจจุบัน */
+/** ปุ่มบนการแจ้งเตือน: เช็คอิน (บันทึกเวลาปัจจุบัน) / ข้าม / เตือนอีกครั้ง */
 class CheckActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val shiftId = intent.getLongExtra(ReminderScheduler.EXTRA_SHIFT_ID, -1)
@@ -56,12 +56,25 @@ class CheckActionReceiver : BroadcastReceiver() {
         runAsync {
             val repo = Repository(context)
             val shift = repo.getShift(shiftId)
-            if (shift != null) {
-                repo.check(shift, type, epochDay)
-            } else {
+            if (shift == null) {
                 Notifications.dismiss(context, shiftId, type)
+                return@runAsync
+            }
+            when (intent.action) {
+                ACTION_SKIP -> repo.check(shift, type, epochDay, skipped = true)
+                ACTION_SNOOZE -> {
+                    Notifications.dismiss(context, shiftId, type)
+                    ReminderScheduler.snooze(context, shiftId, type, epochDay, Notifications.SNOOZE_MINUTES)
+                }
+                else -> repo.check(shift, type, epochDay)
             }
         }
+    }
+
+    companion object {
+        const val ACTION_CHECK = "com.workcheckin.app.CHECK"
+        const val ACTION_SKIP = "com.workcheckin.app.SKIP"
+        const val ACTION_SNOOZE = "com.workcheckin.app.SNOOZE"
     }
 }
 

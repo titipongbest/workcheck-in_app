@@ -23,9 +23,12 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-data class WeekChart(val shift: Shift, val type: CheckType, val days: List<Pair<LocalDate, DayStatus>>)
+/** สถานะรายวันของ shift/type เรียงจากเก่าไปใหม่ (วันสุดท้าย = วันนี้) */
+data class WeekChart(val shift: Shift, val type: CheckType, val days: List<Pair<LocalDate, DayStatus>>) {
+    val last7: List<Pair<LocalDate, DayStatus>> get() = days.takeLast(7)
+}
 
-data class Summary(val total: Int, val done: Int, val onTime: Int, val offTime: Int, val missed: Int)
+data class Summary(val total: Int, val done: Int, val onTime: Int, val offTime: Int, val skipped: Int, val missed: Int)
 
 /** จุดบนกราฟ: นาทีที่ช้า(+)/เร็ว(-) กว่ากำหนด หรือ null ถ้าไม่ได้เช็ค */
 data class DiffPoint(val date: LocalDate, val diff: Long?)
@@ -57,7 +60,10 @@ class ProgressViewModel(app: Application) : AndroidViewModel(app) {
 
         val weekCharts = shifts.filter { it.enabled }.flatMap { shift ->
             CheckType.entries.map { type ->
-                val days = (6 downTo 0L).map { i ->
+                // ย้อนไปถึงต้นสัปดาห์ที่สร้างตารางนี้ (อย่างน้อย 7 วัน ไม่เกิน HISTORY_DAYS)
+                val created = LocalDate.ofEpochDay(shift.createdEpochDay).weekStart()
+                val span = (today.toEpochDay() - created.toEpochDay()).coerceIn(6L, HISTORY_DAYS - 1)
+                val days = (span downTo 0L).map { i ->
                     val d = today.minusDays(i)
                     val task = tasksFor(d, listOf(shift), index).firstOrNull { it.type == type && it.shift?.isActiveOn(d) == true }
                     d to (task?.status(now) ?: DayStatus.OFF)
@@ -70,14 +76,15 @@ class ProgressViewModel(app: Application) : AndroidViewModel(app) {
         val summary = Summary(
             total = last30.size,
             done = last30.count { it.done },
-            onTime = last30.count { it.record?.isOffTime() == false },
+            onTime = last30.count { it.checked && it.record?.isOffTime() == false },
             offTime = last30.count { it.record?.isOffTime() == true },
+            skipped = last30.count { it.skipped },
             missed = last30.count { it.status(now) == DayStatus.MISSED },
         )
 
         fun diffs(type: CheckType) = (13 downTo 0L).map { i ->
             val d = today.minusDays(i)
-            val record = records.filter { it.epochDay == d.toEpochDay() && it.type == type }.minByOrNull { it.checkedAtMillis }
+            val record = records.filter { it.epochDay == d.toEpochDay() && it.type == type && !it.skipped }.minByOrNull { it.checkedAtMillis }
             DiffPoint(d, record?.diffMinutes())
         }
 
@@ -90,12 +97,15 @@ class ProgressViewModel(app: Application) : AndroidViewModel(app) {
 
     fun shareText(s: ProgressState): String = buildString {
         appendLine("สรุปการสแกนนิ้วเข้าออกงาน (30 วันล่าสุด)")
-        appendLine("ตรงเวลา ${s.summary.onTime} · สาย/ออกก่อน ${s.summary.offTime} · ไม่ได้เช็ค ${s.summary.missed}")
+        appendLine("ตรงเวลา ${s.summary.onTime} · สาย/ออกก่อน ${s.summary.offTime} · ข้าม ${s.summary.skipped} · ไม่ได้เช็ค ${s.summary.missed}")
         appendLine()
         s.history.take(30).forEach { (date, tasks) ->
             appendLine(date.thaiLongDate())
             tasks.forEach { t ->
-                val actual = t.record?.checkedAtMillis?.millisToHhmm() ?: "ไม่ได้เช็ค"
+                val actual = when {
+                    t.skipped -> "ข้าม"
+                    else -> t.record?.checkedAtMillis?.millisToHhmm() ?: "ไม่ได้เช็ค"
+                }
                 appendLine("  ${t.type.label()} (${t.shiftName}) กำหนด ${t.scheduledMinutes.hhmm()} · เช็ค $actual")
             }
         }

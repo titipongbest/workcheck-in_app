@@ -1,5 +1,6 @@
 package com.workcheckin.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -50,4 +51,6 @@ data class CheckRecord(
     /** นาทีนับจากเที่ยงคืนของ epochDay (กะดึกอาจเกิน 24 ชม.) */
     val scheduledMinutes: Int,
     val checkedAtMillis: Long,
+    /** ผู้ใช้กด "ข้าม" (เช่น ลา/หยุด) แทนการสแกน */
+    @ColumnInfo(defaultValue = "0") val skipped: Boolean = false,
 )

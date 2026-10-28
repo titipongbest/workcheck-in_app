@@ -92,6 +92,17 @@ class TodayViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** ข้ามรายการนี้ (เช่น ลา/หยุด) หรือเปลี่ยนรายการที่เช็คแล้วเป็นข้าม และกลับกัน */
+    fun setSkipped(task: DayTask, skipped: Boolean) {
+        viewModelScope.launch {
+            if (task.record == null) {
+                repo.check(task.shiftId, task.shiftName, task.type, task.epochDay, task.scheduledMinutes, System.currentTimeMillis(), skipped = true)
+            } else {
+                repo.setSkipped(task.shiftId, task.epochDay, task.type, skipped)
+            }
+        }
+    }
+
     fun uncheck(task: DayTask) {
         viewModelScope.launch { repo.uncheck(task.shiftId, task.epochDay, task.type) }
     }

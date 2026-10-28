@@ -20,6 +20,9 @@ import com.workcheckin.app.data.label
 
 object Notifications {
     const val CHANNEL_ID = "checkin_reminders"
+    const val SNOOZE_MINUTES = 30L
+
+    private fun CheckType.actionLabel() = if (this == CheckType.IN) "เช็คอิน" else "เช็คเอาท์"
 
     fun createChannel(context: Context) {
         val channel = NotificationChannel(
@@ -48,9 +51,10 @@ object Notifications {
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val checkNow = PendingIntent.getBroadcast(
+        fun action(name: String) = PendingIntent.getBroadcast(
             context, id,
             Intent(context, CheckActionReceiver::class.java)
+                .setAction(name)
                 .putExtra(ReminderScheduler.EXTRA_SHIFT_ID, shift.id)
                 .putExtra(ReminderScheduler.EXTRA_TYPE, type.name)
                 .putExtra(ReminderScheduler.EXTRA_EPOCH_DAY, epochDay),
@@ -58,7 +62,7 @@ object Notifications {
         )
 
         val title = if (followUp) "ยังไม่ได้${type.label()}!" else "ถึงเวลา${type.label()}แล้ว"
-        val text = "${shift.name} · เวลา ${shift.minutesFor(type).hhmm()} น. สแกนแล้วกด \"บันทึกแล้ว\""
+        val text = "${shift.name} · เวลา ${shift.minutesFor(type).hhmm()} น. สแกนแล้วกด \"${type.actionLabel()}\""
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_fingerprint)
@@ -69,7 +73,9 @@ object Notifications {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(openApp)
             .setAutoCancel(true)
-            .addAction(0, "บันทึกแล้ว", checkNow)
+            .addAction(0, type.actionLabel(), action(CheckActionReceiver.ACTION_CHECK))
+            .addAction(0, "ข้าม", action(CheckActionReceiver.ACTION_SKIP))
+            .addAction(0, "เตือนอีก $SNOOZE_MINUTES นาที", action(CheckActionReceiver.ACTION_SNOOZE))
             .build()
 
         try {
