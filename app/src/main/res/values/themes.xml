@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.WorkCheckIn" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#F7F3F0</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+</resources>
