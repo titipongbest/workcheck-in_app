@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.workcheckin.app.MainActivity
 import com.workcheckin.app.data.AppDatabase
 import com.workcheckin.app.data.CheckType
 import com.workcheckin.app.data.Shift
@@ -17,6 +18,8 @@ object ReminderScheduler {
     const val EXTRA_TYPE = "type"
     const val EXTRA_EPOCH_DAY = "epoch_day"
     const val EXTRA_FOLLOW_UP = "follow_up"
+    const val EXTRA_TEST = "test"
+    private const val TEST_REQUEST_CODE = Int.MAX_VALUE
     private const val FOLLOW_UP_LIMIT_HOURS = 2L
 
     private fun requestCode(shiftId: Long, type: CheckType, followUp: Boolean): Int =
@@ -40,7 +43,7 @@ object ReminderScheduler {
     /** ตั้งปลุกครั้งถัดไปของ shift/type หลังเวลา [after] */
     fun scheduleNext(context: Context, shift: Shift, type: CheckType, after: LocalDateTime = LocalDateTime.now()) {
         val next = nextOccurrence(shift, type, after) ?: return cancel(context, shift.id, type, followUp = false)
-        setAlarm(context, shift.id, type, next.second, followUp = false, at = next.first)
+        setAlarm(context, shift.id, type, next.second.toEpochDay(), followUp = false, at = next.first)
     }
 
     /** เตือนซ้ำทุก followUpMinutes จนกว่าจะเช็ค แต่ไม่เกิน 2 ชม. หลังเวลาที่ตั้ง */
@@ -53,7 +56,8 @@ object ReminderScheduler {
 
     /** กด "เตือนอีก X นาที" จากการแจ้งเตือน: ใช้ช่องเดียวกับการเตือนซ้ำ */
     fun snooze(context: Context, shiftId: Long, type: CheckType, epochDay: Long, minutes: Long) {
-        setAlarm(context, shiftId, type, epochDay, followUp = true, at = LocalDateTime.now().plusMinutes(minutes))
+        val pi = pendingIntent(context, shiftId, type, followUp = true, epochDay = epochDay)
+        setAlarm(context, pi, LocalDateTime.now().plusMinutes(minutes), alarmClock = true)
     }
 
     /** คืนค่า (เวลาที่ต้องเตือน, วันทำงาน) */
@@ -69,16 +73,37 @@ object ReminderScheduler {
         return null
     }
 
-    private fun setAlarm(context: Context, shiftId: Long, type: CheckType, epochDay: LocalDate, followUp: Boolean, at: LocalDateTime) =
-        setAlarm(context, shiftId, type, epochDay.toEpochDay(), followUp, at)
+    /** ส่งการแจ้งเตือนทดสอบหลังจากนี้ [seconds] วินาที ผ่านเส้นทางเดียวกับการเตือนจริง */
+    fun scheduleTest(context: Context, seconds: Long) {
+        val pi = PendingIntent.getBroadcast(
+            context,
+            TEST_REQUEST_CODE,
+            Intent(context, ReminderReceiver::class.java).putExtra(EXTRA_TEST, true),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        setAlarm(context, pi, LocalDateTime.now().plusSeconds(seconds), alarmClock = true)
+    }
 
     private fun setAlarm(context: Context, shiftId: Long, type: CheckType, epochDay: Long, followUp: Boolean, at: LocalDateTime) {
+        // เตือนหลักใช้ setAlarmClock: ระบบ (และ ROM ของ Xiaomi/OPPO/vivo) ไม่เลื่อนหรือตัดทิ้ง
+        setAlarm(context, pendingIntent(context, shiftId, type, followUp, epochDay), at, alarmClock = !followUp)
+    }
+
+    private fun setAlarm(context: Context, pi: PendingIntent, at: LocalDateTime, alarmClock: Boolean) {
         val am = context.getSystemService(AlarmManager::class.java)
-        val pi = pendingIntent(context, shiftId, type, followUp, epochDay)
         val triggerAt = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         try {
             if (canScheduleExact(context)) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                if (alarmClock) {
+                    val show = PendingIntent.getActivity(
+                        context, 0,
+                        Intent(context, MainActivity::class.java),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    )
+                    am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, show), pi)
+                } else {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                }
                 return
             }
         } catch (_: SecurityException) {

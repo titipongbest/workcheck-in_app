@@ -28,6 +28,10 @@ private fun BroadcastReceiver.runAsync(block: suspend () -> Unit) {
 /** ถึงเวลาที่ตั้งไว้: แจ้งเตือนถ้ายังไม่ได้เช็ค แล้วตั้งปลุกรอบถัดไป */
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.getBooleanExtra(ReminderScheduler.EXTRA_TEST, false)) {
+            Notifications.showTest(context, "การแจ้งเตือนแบบตั้งเวลาทำงานปกติ ✓")
+            return
+        }
         val shiftId = intent.getLongExtra(ReminderScheduler.EXTRA_SHIFT_ID, -1)
         val type = intent.getStringExtra(ReminderScheduler.EXTRA_TYPE)?.let(CheckType::valueOf) ?: return
         val epochDay = intent.getLongExtra(ReminderScheduler.EXTRA_EPOCH_DAY, 0)

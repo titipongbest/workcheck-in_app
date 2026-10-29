@@ -21,6 +21,7 @@ import com.workcheckin.app.data.label
 object Notifications {
     const val CHANNEL_ID = "checkin_reminders"
     const val SNOOZE_MINUTES = 30L
+    private const val TEST_ID = Int.MAX_VALUE
 
     private fun CheckType.actionLabel() = if (this == CheckType.IN) "เช็คอิน" else "เช็คเอาท์"
 
@@ -83,6 +84,29 @@ object Notifications {
         } catch (_: SecurityException) {
             // ผู้ใช้ปิดสิทธิ์แจ้งเตือนระหว่างทาง
         }
+    }
+
+    fun showTest(context: Context, text: String) {
+        if (!canPost(context)) return
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_fingerprint)
+            .setContentTitle("ทดสอบแจ้งเตือน")
+            .setContentText(text)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(TEST_ID, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /** ช่องแจ้งเตือนถูกผู้ใช้ปิดหรือลดระดับจนไม่เด้ง */
+    fun channelBlocked(context: Context): Boolean {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val channel = nm.getNotificationChannel(CHANNEL_ID) ?: return false
+        return channel.importance < NotificationManager.IMPORTANCE_DEFAULT
     }
 
     fun dismiss(context: Context, shiftId: Long, type: CheckType) {

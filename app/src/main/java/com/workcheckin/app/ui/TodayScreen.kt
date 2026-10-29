@@ -151,6 +151,9 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (s.hasShifts) {
+                    item { ReminderWarnings() }
+                }
                 if (pending.isNotEmpty()) {
                     item {
                         Column {

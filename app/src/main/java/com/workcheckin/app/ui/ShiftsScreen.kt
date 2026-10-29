@@ -1,9 +1,5 @@
 package com.workcheckin.app.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddCircleOutline
-import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -29,32 +24,24 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.workcheckin.app.data.CheckType
 import com.workcheckin.app.data.Shift
 import com.workcheckin.app.data.hhmm
-import com.workcheckin.app.notify.Notifications
+import java.time.LocalDateTime
 import com.workcheckin.app.notify.ReminderScheduler
 import com.workcheckin.app.ui.theme.Brown
 import com.workcheckin.app.ui.theme.CheckGreen
 import com.workcheckin.app.ui.theme.DarkBrown
-import com.workcheckin.app.ui.theme.MissRed
 import com.workcheckin.app.ui.theme.Muted
 import com.workcheckin.app.ui.theme.Peach
 import com.workcheckin.app.ui.theme.Rust
@@ -82,7 +69,8 @@ fun ShiftsScreen(onEdit: (Long) -> Unit, vm: ShiftsViewModel = viewModel()) {
             item {
                 Text("ตารางเวลา", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = DarkBrown)
             }
-            item { PermissionWarnings() }
+            item { ReminderWarnings() }
+            item { TestReminderCard() }
             val list = shifts.orEmpty()
             if (shifts != null && list.isEmpty()) {
                 item {
@@ -122,6 +110,7 @@ private fun ShiftCard(shift: Shift, onClick: () -> Unit, onToggle: (Boolean) -> 
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(daysText(shift.daysMask), color = Muted, fontSize = 14.sp)
+                nextReminderText(shift)?.let { Text(it, color = Brown, fontSize = 13.sp) }
             }
             Switch(
                 checked = shift.enabled,
@@ -132,45 +121,10 @@ private fun ShiftCard(shift: Shift, onClick: () -> Unit, onToggle: (Boolean) -> 
     }
 }
 
-/** เตือนผู้ใช้ถ้าปิดการแจ้งเตือน หรือไม่ได้ให้สิทธิ์ปลุกตรงเวลา */
-@Composable
-private fun PermissionWarnings() {
-    val context = LocalContext.current
-    var refresh by remember { mutableIntStateOf(0) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh++ }
-
-    val canNotify = remember(refresh) { Notifications.canPost(context) }
-    val canExact = remember(refresh) { ReminderScheduler.canScheduleExact(context) }
-    if (canNotify && canExact) return
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEDEA)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.NotificationsOff, null, tint = MissRed)
-                Spacer(Modifier.width(8.dp))
-                Text("การแจ้งเตือนอาจไม่ทำงาน", fontWeight = FontWeight.SemiBold, color = MissRed)
-            }
-            if (!canNotify) {
-                Text("แอปยังไม่ได้รับอนุญาตให้แสดงการแจ้งเตือน", fontSize = 14.sp, color = DarkBrown)
-                TextButton(onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    )
-                }) { Text("เปิดการแจ้งเตือน") }
-            }
-            if (!canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Text("ยังไม่ได้อนุญาต \"การปลุกและการช่วยเตือน\" แจ้งเตือนอาจช้ากว่าเวลาที่ตั้ง", fontSize = 14.sp, color = DarkBrown)
-                TextButton(onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))
-                    )
-                }) { Text("อนุญาตให้เตือนตรงเวลา") }
-            }
-        }
-    }
+private fun nextReminderText(shift: Shift): String? {
+    val now = LocalDateTime.now()
+    val next = CheckType.entries.mapNotNull { ReminderScheduler.nextOccurrence(shift, it, now)?.first }.minOrNull()
+        ?: return null
+    val day = next.toLocalDate()
+    return "เตือนครั้งถัดไป: ${day.dayOfWeek.thaiShort()} ${day.thaiShortDate()} ${"%02d:%02d".format(next.hour, next.minute)} น."
 }
