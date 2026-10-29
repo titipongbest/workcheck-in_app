@@ -1,0 +1,5 @@
+<resources>
+    <!-- สีข้อความในแจ้งเตือนแบบย่อ (ไม่มีพื้นหลังของตัวเอง ต้องอ่านออกทั้งโหมดสว่าง/มืด) -->
+    <color name="notif_title">#3B2622</color>
+    <color name="notif_outline_text">#6B4237</color>
+</resources>

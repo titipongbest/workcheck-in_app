@@ -13,8 +13,8 @@ android {
         applicationId = "com.workcheckin.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 5
+        versionName = "1.1.3"
     }
 
     // คีย์ release มาจาก GitHub Secrets (ดู .github/workflows/build-apk.yml)
