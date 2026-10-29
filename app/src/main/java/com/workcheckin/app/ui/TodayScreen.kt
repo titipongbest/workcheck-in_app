@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -82,7 +80,12 @@ import com.workcheckin.app.ui.theme.Peach
 import com.workcheckin.app.ui.theme.Rust
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import kotlin.math.abs
+import java.time.temporal.ChronoUnit
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
 
 @Composable
 fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
@@ -135,7 +138,7 @@ fun TodayScreen(onAdd: () -> Unit, vm: TodayViewModel = viewModel()) {
                 streak = s.streak,
                 onCalendar = { showDatePicker = true },
             )
-            WeekStrip(s, onSelect = vm::select, onSwipe = vm::shiftWeek)
+            WeekStrip(s, onSelect = vm::select)
             if (s.selected != s.today) {
                 TextButton(
                     onClick = { vm.select(s.today) },
@@ -287,24 +290,51 @@ private fun TopBar(title: String, streak: Int, onCalendar: () -> Unit) {
     }
 }
 
+private const val WEEK_PAGES = 2001
+private const val CENTER_PAGE = WEEK_PAGES / 2
+
+/** แถบสัปดาห์แบบเลื่อนตามนิ้ว: 1 หน้า = 1 สัปดาห์ (อา.-ส.) */
 @Composable
-private fun WeekStrip(s: TodayState, onSelect: (LocalDate) -> Unit, onSwipe: (Long) -> Unit) {
-    var drag by remember { mutableStateOf(0f) }
+private fun WeekStrip(s: TodayState, onSelect: (LocalDate) -> Unit) {
+    val baseWeek = remember { s.today.weekStart() }
+    fun pageOf(date: LocalDate) = CENTER_PAGE + ChronoUnit.WEEKS.between(baseWeek, date.weekStart()).toInt()
+
+    val pager = rememberPagerState(initialPage = pageOf(s.selected)) { WEEK_PAGES }
+    val selected by rememberUpdatedState(s.selected)
+    val select by rememberUpdatedState(onSelect)
+
+    // เลือกวันจากปฏิทิน / กด "กลับไปวันนี้" -> เลื่อนแถบไปสัปดาห์นั้นแบบมีแอนิเมชัน
+    LaunchedEffect(s.selected) {
+        val target = pageOf(s.selected)
+        if (pager.currentPage != target) pager.animateScrollToPage(target)
+    }
+    // ปัดไปสัปดาห์อื่น -> เลือกวันเดียวกันของสัปดาห์นั้น
+    LaunchedEffect(pager) {
+        snapshotFlow { pager.settledPage }.collect { page ->
+            val weekStart = baseWeek.plusWeeks((page - CENTER_PAGE).toLong())
+            if (selected.weekStart() != weekStart) {
+                select(weekStart.plusDays((selected.dayOfWeek.value % 7).toLong()))
+            }
+        }
+    }
+
+    HorizontalPager(
+        state = pager,
+        modifier = Modifier.fillMaxWidth(),
+        beyondViewportPageCount = 1,
+    ) { page ->
+        WeekRow(s, s.weekDays(baseWeek.plusWeeks((page - CENTER_PAGE).toLong())), onSelect)
+    }
+}
+
+@Composable
+private fun WeekRow(s: TodayState, week: List<WeekDay>, onSelect: (LocalDate) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 12.dp)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { drag = 0f },
-                    onDragEnd = {
-                        if (abs(drag) > 120) onSwipe(if (drag < 0) 1 else -1)
-                    },
-                    onHorizontalDrag = { _, amount -> drag += amount },
-                )
-            },
+            .padding(horizontal = 8.dp, vertical = 12.dp),
     ) {
-        s.week.forEach { day ->
+        week.forEach { day ->
             val isToday = day.date == s.today
             val isSelected = day.date == s.selected
             Column(
@@ -451,13 +481,15 @@ private fun EmptyState(title: String, subtitle: String, done: Boolean) {
         Modifier.fillMaxWidth().padding(top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            Modifier.size(150.dp).background(if (done) Peach else Color(0xFFEFE9E5), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.Star, contentDescription = null, tint = if (done) Color(0xFFFFB300) else Color(0xFFCFC6C1), modifier = Modifier.size(100.dp))
+        if (!done) {
+            Box(
+                Modifier.size(150.dp).background(Color(0xFFEFE9E5), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Star, contentDescription = null, tint = Color(0xFFCFC6C1), modifier = Modifier.size(100.dp))
+            }
+            Spacer(Modifier.height(24.dp))
         }
-        Spacer(Modifier.height(24.dp))
         Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3E3A39), textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(subtitle, fontSize = 17.sp, color = Color(0xFF6E6865), textAlign = TextAlign.Center)

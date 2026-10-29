@@ -4,7 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.workcheckin.app.App
+import com.workcheckin.app.data.CheckRecord
 import com.workcheckin.app.data.DayTask
+import com.workcheckin.app.data.RecordKey
+import com.workcheckin.app.data.Shift
 import com.workcheckin.app.data.indexed
 import com.workcheckin.app.data.streak
 import com.workcheckin.app.data.tasksFor
@@ -25,12 +28,20 @@ data class WeekDay(val date: LocalDate, val hasTasks: Boolean, val allDone: Bool
 data class TodayState(
     val now: LocalDateTime,
     val selected: LocalDate,
-    val week: List<WeekDay>,
     val tasks: List<DayTask>,
     val streak: Int,
     val hasShifts: Boolean,
+    private val shifts: List<Shift>,
+    private val index: Map<RecordKey, CheckRecord>,
 ) {
     val today: LocalDate get() = now.toLocalDate()
+
+    /** ข้อมูลของสัปดาห์ใดก็ได้ ใช้ตอนเลื่อนแถบสัปดาห์ไปมา */
+    fun weekDays(start: LocalDate): List<WeekDay> = (0..6L).map { i ->
+        val d = start.plusDays(i)
+        val t = tasksFor(d, shifts, index)
+        WeekDay(d, t.isNotEmpty(), t.isNotEmpty() && t.all { it.done })
+    }
 }
 
 class TodayViewModel(app: Application) : AndroidViewModel(app) {
@@ -51,28 +62,19 @@ class TodayViewModel(app: Application) : AndroidViewModel(app) {
         clock,
     ) { sel, shifts, records, now ->
         val index = records.indexed()
-        val start = sel.weekStart()
-        val week = (0..6L).map { i ->
-            val d = start.plusDays(i)
-            val t = tasksFor(d, shifts, index)
-            WeekDay(d, t.isNotEmpty(), t.isNotEmpty() && t.all { it.done })
-        }
         TodayState(
             now = now,
             selected = sel,
-            week = week,
             tasks = tasksFor(sel, shifts, index),
             streak = streak(now.toLocalDate(), shifts, index),
             hasShifts = shifts.isNotEmpty(),
+            shifts = shifts,
+            index = index,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun select(date: LocalDate) {
         selected.value = date
-    }
-
-    fun shiftWeek(weeks: Long) {
-        selected.value = selected.value.plusWeeks(weeks)
     }
 
     /** บันทึกเวลาปัจจุบัน */
