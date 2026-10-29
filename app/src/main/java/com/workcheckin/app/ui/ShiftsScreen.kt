@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.workcheckin.app.BuildConfig
 import com.workcheckin.app.data.CheckType
 import com.workcheckin.app.data.Shift
 import com.workcheckin.app.data.hhmm
@@ -82,6 +83,15 @@ fun ShiftsScreen(onEdit: (Long) -> Unit, vm: ShiftsViewModel = viewModel()) {
             }
             items(list, key = { it.id }) { shift ->
                 ShiftCard(shift, onClick = { onEdit(shift.id) }, onToggle = { vm.setEnabled(shift, it) })
+            }
+            item {
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("เช็คอินงาน เวอร์ชัน ${BuildConfig.VERSION_NAME}", color = Muted, fontSize = 13.sp)
+                    Text("By NorthxBar", color = Brown, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

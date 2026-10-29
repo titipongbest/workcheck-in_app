@@ -33,3 +33,9 @@ app/src/main/java/com/workcheckin/app/
   notify/   AlarmManager + BroadcastReceiver (เตือน, ปุ่มบันทึก, ตั้งปลุกใหม่หลังรีบูต)
   ui/       หน้าจอ Compose: Today, ShiftEdit, Shifts, Progress
 ```
+
+## Release (signed APK)
+- เวอร์ชันอยู่ที่ `app/build.gradle.kts` (`versionName` / `versionCode` เพิ่มทุกครั้งที่ออกเวอร์ชันใหม่)
+- ตั้ง GitHub Secrets 2 ตัว: `KEYSTORE_BASE64` (ไฟล์ keystore แปลงเป็น base64) และ `KEYSTORE_PASSWORD` (alias ค่าเริ่มต้น `northxbar`)
+- push tag เช่น `v1.1.0` แล้ว workflow จะ build APK ที่ sign แล้ว และสร้างหน้า GitHub Release ให้ดาวน์โหลด
+- เก็บไฟล์ keystore ไว้ให้ดี ถ้าหาย จะอัปเดตแอปทับตัวเดิมไม่ได้
