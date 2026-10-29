@@ -4,6 +4,10 @@ import android.content.Intent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.remember
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.SkipNext
@@ -138,8 +142,12 @@ private fun WhiteCard(content: @Composable ColumnScope.() -> Unit) {
     ) { Column(Modifier.padding(20.dp)) { content() } }
 }
 
+private data class StatDetail(val title: String, val tasks: List<DayTask>)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SummaryCard(sum: Summary) {
+    var detail by remember { mutableStateOf<StatDetail?>(null) }
     WhiteCard {
         Text("30 วันล่าสุด", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = DarkBrown)
         Spacer(Modifier.height(4.dp))
@@ -147,17 +155,54 @@ private fun SummaryCard(sum: Summary) {
         Text("เช็คครบ $pct% (${sum.done}/${sum.total} รายการ)", color = Muted, fontSize = 15.sp)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
-            Stat("ตรงเวลา", sum.onTime, CheckGreen, Modifier.weight(1f))
-            Stat("สาย/ออกก่อน", sum.offTime, Color(0xFFFF9800), Modifier.weight(1f))
-            Stat("ข้าม", sum.skipped, Color(0xFFB26A00), Modifier.weight(1f))
-            Stat("ไม่ได้เช็ค", sum.missed, MissRed, Modifier.weight(1f))
+            listOf(
+                Triple("ตรงเวลา", sum.onTimeTasks, CheckGreen),
+                Triple("สาย/ออกก่อน", sum.offTimeTasks, Color(0xFFFF9800)),
+                Triple("ข้าม", sum.skippedTasks, Color(0xFFB26A00)),
+                Triple("ไม่ได้เช็ค", sum.missedTasks, MissRed),
+            ).forEach { (label, tasks, color) ->
+                Stat(label, tasks.size, color, Modifier.weight(1f)) { detail = StatDetail(label, tasks) }
+            }
+        }
+        Text(
+            "กดที่ตัวเลขเพื่อดูรายการ",
+            fontSize = 12.sp, color = Muted,
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
+        )
+    }
+
+    detail?.let { d ->
+        ModalBottomSheet(onDismissRequest = { detail = null }, containerColor = Color.White) {
+            Text(
+                "${d.title} · 30 วันล่าสุด (${d.tasks.size} รายการ)",
+                fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = DarkBrown,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+            if (d.tasks.isEmpty()) {
+                Text("ไม่มีรายการ", color = Muted, modifier = Modifier.padding(20.dp))
+            } else {
+                LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                    items(d.tasks, key = { "${it.shiftId}-${it.epochDay}-${it.type}" }) { t ->
+                        Text(
+                            t.date.thaiLongDate(),
+                            fontSize = 13.sp, color = Muted,
+                            modifier = Modifier.padding(start = 20.dp, top = 8.dp),
+                        )
+                        HistoryRow(t)
+                        HorizontalDivider(color = Color(0xFFF3F0EE), modifier = Modifier.padding(horizontal = 16.dp))
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun Stat(label: String, value: Int, color: Color, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun Stat(label: String, value: Int, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text("$value", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = color)
         Text(label, fontSize = 13.sp, color = Muted)
     }

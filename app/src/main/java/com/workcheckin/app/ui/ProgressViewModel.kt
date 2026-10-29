@@ -28,7 +28,20 @@ data class WeekChart(val shift: Shift, val type: CheckType, val days: List<Pair<
     val last7: List<Pair<LocalDate, DayStatus>> get() = days.takeLast(7)
 }
 
-data class Summary(val total: Int, val done: Int, val onTime: Int, val offTime: Int, val skipped: Int, val missed: Int)
+/** รายการ 30 วันล่าสุด แยกตามผลลัพธ์ (ใหม่สุดก่อน) */
+data class Summary(
+    val total: Int,
+    val done: Int,
+    val onTimeTasks: List<DayTask>,
+    val offTimeTasks: List<DayTask>,
+    val skippedTasks: List<DayTask>,
+    val missedTasks: List<DayTask>,
+) {
+    val onTime get() = onTimeTasks.size
+    val offTime get() = offTimeTasks.size
+    val skipped get() = skippedTasks.size
+    val missed get() = missedTasks.size
+}
 
 /** จุดบนกราฟ: นาทีที่ช้า(+)/เร็ว(-) กว่ากำหนด หรือ null ถ้าไม่ได้เช็ค */
 data class DiffPoint(val date: LocalDate, val diff: Long?)
@@ -76,10 +89,10 @@ class ProgressViewModel(app: Application) : AndroidViewModel(app) {
         val summary = Summary(
             total = last30.size,
             done = last30.count { it.done },
-            onTime = last30.count { it.checked && it.record?.isOffTime() == false },
-            offTime = last30.count { it.record?.isOffTime() == true },
-            skipped = last30.count { it.skipped },
-            missed = last30.count { it.status(now) == DayStatus.MISSED },
+            onTimeTasks = last30.filter { it.checked && it.record?.isOffTime() == false },
+            offTimeTasks = last30.filter { it.record?.isOffTime() == true },
+            skippedTasks = last30.filter { it.skipped },
+            missedTasks = last30.filter { it.status(now) == DayStatus.MISSED },
         )
 
         fun diffs(type: CheckType) = (13 downTo 0L).map { i ->
