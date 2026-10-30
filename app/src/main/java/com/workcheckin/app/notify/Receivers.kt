@@ -6,6 +6,7 @@ import android.content.Intent
 import com.workcheckin.app.data.AppDatabase
 import com.workcheckin.app.data.CheckType
 import com.workcheckin.app.data.Repository
+import com.workcheckin.app.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,6 +39,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val followUp = intent.getBooleanExtra(ReminderScheduler.EXTRA_FOLLOW_UP, false)
 
         runAsync {
+            TodayWidget.updateAll(context)
             val shift = AppDatabase.get(context).shiftDao().get(shiftId) ?: return@runAsync
             if (!followUp) {
                 ReminderScheduler.scheduleNext(context, shift, type, LocalDateTime.now().plusMinutes(1))
@@ -85,6 +87,9 @@ class CheckActionReceiver : BroadcastReceiver() {
 /** เปิดเครื่องใหม่/เปลี่ยนเวลา: AlarmManager ล้างปลุกทั้งหมด ต้องตั้งใหม่ */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        runAsync { ReminderScheduler.rescheduleAll(context) }
+        runAsync {
+            ReminderScheduler.rescheduleAll(context)
+            TodayWidget.updateAll(context)
+        }
     }
 }

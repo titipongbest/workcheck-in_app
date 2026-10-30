@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">เช็คอินงาน</string>
+    <string name="widget_description">รายการสแกนนิ้ววันนี้ กดเช็คได้จากหน้าจอหลัก</string>
 </resources>

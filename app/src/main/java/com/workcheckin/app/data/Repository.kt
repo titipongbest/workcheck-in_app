@@ -3,6 +3,7 @@ package com.workcheckin.app.data
 import android.content.Context
 import com.workcheckin.app.notify.Notifications
 import com.workcheckin.app.notify.ReminderScheduler
+import com.workcheckin.app.widget.TodayWidget
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
@@ -24,12 +25,14 @@ class Repository(private val context: Context) {
             shift.id
         }
         ReminderScheduler.rescheduleAll(context)
+        TodayWidget.updateAll(context)
         return id
     }
 
     suspend fun deleteShift(shift: Shift) {
         db.shiftDao().delete(shift)
         ReminderScheduler.cancelShift(context, shift.id)
+        TodayWidget.updateAll(context)
     }
 
     suspend fun check(shift: Shift, type: CheckType, epochDay: Long, atMillis: Long = System.currentTimeMillis(), skipped: Boolean = false) {
@@ -60,6 +63,7 @@ class Repository(private val context: Context) {
         )
         ReminderScheduler.cancelFollowUp(context, shiftId, type)
         Notifications.dismiss(context, shiftId, type)
+        TodayWidget.updateAll(context)
     }
 
     suspend fun isChecked(shiftId: Long, epochDay: Long, type: CheckType): Boolean =
@@ -69,9 +73,11 @@ class Repository(private val context: Context) {
     suspend fun setSkipped(shiftId: Long, epochDay: Long, type: CheckType, skipped: Boolean) {
         val existing = db.recordDao().find(shiftId, epochDay, type) ?: return
         db.recordDao().upsert(existing.copy(skipped = skipped))
+        TodayWidget.updateAll(context)
     }
 
     suspend fun uncheck(shiftId: Long, epochDay: Long, type: CheckType) {
         db.recordDao().delete(shiftId, epochDay, type)
+        TodayWidget.updateAll(context)
     }
 }

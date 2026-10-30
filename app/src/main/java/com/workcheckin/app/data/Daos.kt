@@ -34,6 +34,9 @@ interface RecordDao {
     @Query("SELECT * FROM check_records WHERE epochDay >= :fromDay ORDER BY epochDay DESC, checkedAtMillis DESC")
     fun observeSince(fromDay: Long): Flow<List<CheckRecord>>
 
+    @Query("SELECT * FROM check_records WHERE epochDay = :epochDay")
+    suspend fun forDay(epochDay: Long): List<CheckRecord>
+
     @Query("SELECT * FROM check_records WHERE shiftId = :shiftId AND epochDay = :epochDay AND type = :type LIMIT 1")
     suspend fun find(shiftId: Long, epochDay: Long, type: CheckType): CheckRecord?
 
