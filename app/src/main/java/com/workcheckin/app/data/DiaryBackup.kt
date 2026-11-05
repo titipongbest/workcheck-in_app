@@ -127,9 +127,20 @@ object DiaryBackup {
             }
         }
         val dir = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
-        return DocumentsContract.createDocument(resolver, dir, "application/json", BACKUP_FILE_NAME)
+        val created = DocumentsContract.createDocument(resolver, dir, "application/json", BACKUP_FILE_NAME)
             ?: error("สร้างไฟล์ในโฟลเดอร์ไม่ได้")
+        // บางที่เก็บ (เช่น Drive / มือถือบางรุ่น) อาจตัดหรือเติมนามสกุลเอง ให้ชื่อเป็น .json ตรงตัวเสมอ
+        if (displayName(context, created) != BACKUP_FILE_NAME) {
+            runCatching { DocumentsContract.renameDocument(resolver, created, BACKUP_FILE_NAME) }
+                .getOrNull()?.let { return it }
+        }
+        return created
     }
+
+    private fun displayName(context: Context, doc: Uri): String? = runCatching {
+        context.contentResolver.query(doc, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    }.getOrNull()
 
     private fun folderName(context: Context, tree: Uri): String? = runCatching {
         val doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
