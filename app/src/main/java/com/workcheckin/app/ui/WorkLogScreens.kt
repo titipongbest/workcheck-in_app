@@ -246,9 +246,10 @@ private fun LogRow(log: WorkLog, onClick: () -> Unit) {
             }
             Spacer(Modifier.width(14.dp))
             Text(
-                log.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "",
-                fontSize = 16.sp, color = DarkBrown,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                // รวมทุกบรรทัดเป็นข้อความต่อกัน ให้ตัวอย่างเต็มความสูงช่อง (เท่ากล่องวันที่)
+                log.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("  "),
+                fontSize = 15.sp, lineHeight = 22.sp, color = DarkBrown,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
         }
