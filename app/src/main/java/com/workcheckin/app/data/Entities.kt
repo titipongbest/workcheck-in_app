@@ -54,3 +54,17 @@ data class CheckRecord(
     /** ผู้ใช้กด "ข้าม" (เช่น ลา/หยุด) แทนการสแกน */
     @ColumnInfo(defaultValue = "0") val skipped: Boolean = false,
 )
+
+/** บันทึกการทำงาน 1 รายการต่อวัน (หน้าแบบไดอารี่) */
+@Entity(
+    tableName = "work_logs",
+    indices = [Index(value = ["epochDay"], unique = true)],
+)
+data class WorkLog(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val epochDay: Long,
+    val text: String,
+    val updatedAtMillis: Long = System.currentTimeMillis(),
+) {
+    val date: LocalDate get() = LocalDate.ofEpochDay(epochDay)
+}
