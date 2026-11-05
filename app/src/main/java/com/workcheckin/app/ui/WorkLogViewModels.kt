@@ -146,7 +146,7 @@ class WorkLogEditViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-data class BackupUiState(val settings: DiaryBackup.Settings, val count: Int)
+data class BackupUiState(val settings: DiaryBackup.Settings, val logCount: Int, val shiftCount: Int, val recordCount: Int)
 
 class WorkLogDataViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = (app as App).repository
@@ -161,7 +161,8 @@ class WorkLogDataViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh() {
         viewModelScope.launch {
             _state.value = withContext(Dispatchers.IO) {
-                BackupUiState(DiaryBackup.settings(ctx), repo.allWorkLogs().size)
+                val snap = repo.snapshot()
+                BackupUiState(DiaryBackup.settings(ctx), snap.workLogs.size, snap.shifts.size, snap.records.size)
             }
         }
     }
@@ -174,11 +175,11 @@ class WorkLogDataViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _message.value = withContext(Dispatchers.IO) {
                 runCatching {
-                    val logs = repo.allWorkLogs()
+                    val snap = repo.snapshot()
                     ctx.contentResolver.openOutputStream(uri, "wt")!!.use {
-                        it.write(DiaryBackup.toJson(logs).toByteArray(Charsets.UTF_8))
+                        it.write(DiaryBackup.toJson(snap).toByteArray(Charsets.UTF_8))
                     }
-                    "ส่งออก ${logs.size} รายการแล้ว"
+                    "ส่งออกแล้ว: บันทึกงาน ${snap.workLogs.size} วัน, เช็คอิน ${snap.records.size} รายการ"
                 }.getOrElse { "ส่งออกไม่สำเร็จ: ${it.message}" }
             }
         }
@@ -189,12 +190,15 @@ class WorkLogDataViewModel(app: Application) : AndroidViewModel(app) {
             _message.value = withContext(Dispatchers.IO) {
                 runCatching {
                     val text = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
-                    val logs = DiaryBackup.fromJson(text)
-                    if (logs.isEmpty()) return@runCatching "ไม่พบบันทึกในไฟล์นี้"
-                    val (applied, skipped) = repo.importWorkLogs(logs)
+                    val snap = DiaryBackup.fromJson(text)
+                    if (snap.isEmpty) return@runCatching "ไม่พบข้อมูลในไฟล์นี้"
+                    val r = repo.importSnapshot(snap)
                     buildString {
-                        append("นำเข้า $applied รายการ")
-                        if (skipped > 0) append(" (ข้าม $skipped รายการที่มีอยู่แล้ว)")
+                        append("นำเข้าบันทึกงาน ${r.workLogs} วัน")
+                        if (r.skippedLogs > 0) append(" (ข้าม ${r.skippedLogs} วันที่มีอยู่แล้ว)")
+                        if (snap.shifts.isNotEmpty() || snap.records.isNotEmpty()) {
+                            append(", ตารางเวลาใหม่ ${r.shifts}, เช็คอิน ${r.records} รายการ")
+                        }
                     }
                 }.getOrElse { "ไฟล์ไม่ถูกต้อง นำเข้าไม่สำเร็จ" }
             }

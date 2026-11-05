@@ -43,6 +43,13 @@ interface RecordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(record: CheckRecord): Long
 
+    @Query("SELECT * FROM check_records")
+    suspend fun getAll(): List<CheckRecord>
+
+    /** ใช้ตอนนำเข้า: ถ้ามีรายการของกะ/วัน/ประเภทเดียวกันอยู่แล้วให้ข้าม */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnore(record: CheckRecord): Long
+
     @Query("DELETE FROM check_records WHERE shiftId = :shiftId AND epochDay = :epochDay AND type = :type")
     suspend fun delete(shiftId: Long, epochDay: Long, type: CheckType)
 }

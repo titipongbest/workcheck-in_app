@@ -505,7 +505,7 @@ fun WorkLogDataScreen(onBack: () -> Unit, vm: WorkLogDataViewModel = viewModel()
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text("ข้อมูลบันทึกงาน", fontWeight = FontWeight.Bold) },
+                title = { Text("สำรองข้อมูล", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "กลับ") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Background),
             )
@@ -518,7 +518,10 @@ fun WorkLogDataScreen(onBack: () -> Unit, vm: WorkLogDataViewModel = viewModel()
         ) {
             WhitePanel {
                 Text("นำเข้า / ส่งออก", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = DarkBrown)
-                Text("มีบันทึกทั้งหมด ${s.count} วัน ไฟล์เป็นแบบ JSON", color = Muted, fontSize = 14.sp)
+                Text(
+                    "ไฟล์ JSON ไฟล์เดียว รวมบันทึกงาน ${s.logCount} วัน, ตารางเวลา ${s.shiftCount} รายการ และประวัติเช็คอิน ${s.recordCount} รายการ",
+                    color = Muted, fontSize = 14.sp,
+                )
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = { exportLauncher.launch("WorkCheckIn-worklog-${LocalDate.now()}.json") },
@@ -584,9 +587,14 @@ fun WorkLogDataScreen(onBack: () -> Unit, vm: WorkLogDataViewModel = viewModel()
     if (confirmImport) {
         AlertDialog(
             onDismissRequest = { confirmImport = false },
-            title = { Text("นำเข้าไฟล์บันทึกงาน") },
+            title = { Text("นำเข้าไฟล์สำรอง") },
             text = {
-                Text("บันทึกในไฟล์จะรวมกับข้อมูลที่มีอยู่ ถ้าวันเดียวกันมีทั้งสองที่ จะเก็บอันที่แก้ไขล่าสุด")
+                Text(
+                    "ข้อมูลในไฟล์จะรวมกับข้อมูลที่มีอยู่ ไม่ลบของเดิม\n" +
+                        "• บันทึกงานวันเดียวกัน เก็บอันที่แก้ไขล่าสุด\n" +
+                        "• ตารางเวลาที่เหมือนกันจะไม่เพิ่มซ้ำ\n" +
+                        "• ประวัติเช็คอินที่มีอยู่แล้วเก็บของเดิม"
+                )
             },
             confirmButton = {
                 TextButton(onClick = {

@@ -27,6 +27,7 @@ class Repository(private val context: Context) {
         }
         ReminderScheduler.rescheduleAll(context)
         TodayWidget.updateAll(context)
+        DiaryBackup.markDirty(context)
         return id
     }
 
@@ -34,6 +35,7 @@ class Repository(private val context: Context) {
         db.shiftDao().delete(shift)
         ReminderScheduler.cancelShift(context, shift.id)
         TodayWidget.updateAll(context)
+        DiaryBackup.markDirty(context)
     }
 
     suspend fun check(shift: Shift, type: CheckType, epochDay: Long, atMillis: Long = System.currentTimeMillis(), skipped: Boolean = false) {
@@ -65,6 +67,7 @@ class Repository(private val context: Context) {
         ReminderScheduler.cancelFollowUp(context, shiftId, type)
         Notifications.dismiss(context, shiftId, type)
         TodayWidget.updateAll(context)
+        DiaryBackup.markDirty(context)
     }
 
     suspend fun isChecked(shiftId: Long, epochDay: Long, type: CheckType): Boolean =
@@ -75,11 +78,13 @@ class Repository(private val context: Context) {
         val existing = db.recordDao().find(shiftId, epochDay, type) ?: return
         db.recordDao().upsert(existing.copy(skipped = skipped))
         TodayWidget.updateAll(context)
+        DiaryBackup.markDirty(context)
     }
 
     suspend fun uncheck(shiftId: Long, epochDay: Long, type: CheckType) {
         db.recordDao().delete(shiftId, epochDay, type)
         TodayWidget.updateAll(context)
+        DiaryBackup.markDirty(context)
     }
 
     // ---- บันทึกการทำงาน ----
@@ -109,12 +114,24 @@ class Repository(private val context: Context) {
         DiaryBackup.markDirty(context)
     }
 
-    /** รวมข้อมูลที่นำเข้า: วันที่ซ้ำจะเก็บรายการที่แก้ไขล่าสุด คืนค่า (เพิ่ม/อัปเดต, ข้าม) */
-    suspend fun importWorkLogs(logs: List<WorkLog>): Pair<Int, Int> {
+    suspend fun snapshot(): DiaryBackup.Snapshot =
+        DiaryBackup.Snapshot(db.workLogDao().getAll(), db.shiftDao().getAll(), db.recordDao().getAll())
+
+    data class ImportResult(val workLogs: Int, val skippedLogs: Int, val shifts: Int, val records: Int)
+
+    /**
+     * รวมข้อมูลที่นำเข้ากับของเดิม
+     * - บันทึกงาน: วันที่ซ้ำเก็บรายการที่แก้ไขล่าสุด
+     * - ตารางเวลา: ถ้ามีตารางชื่อ/เวลา/วันเดียวกันอยู่แล้วใช้ของเดิม ไม่งั้นเพิ่มใหม่
+     * - ประวัติเช็คอิน: ถ้ากะ/วัน/ประเภทเดียวกันมีอยู่แล้วเก็บของเดิม
+     */
+    suspend fun importSnapshot(data: DiaryBackup.Snapshot): ImportResult {
         var applied = 0
         var skipped = 0
+        var newShifts = 0
+        var newRecords = 0
         db.withTransaction {
-            for (log in logs) {
+            for (log in data.workLogs) {
                 val existing = db.workLogDao().forDay(log.epochDay)
                 when {
                     existing == null -> { db.workLogDao().upsert(log.copy(id = 0)); applied++ }
@@ -122,8 +139,25 @@ class Repository(private val context: Context) {
                     else -> { db.workLogDao().upsert(log.copy(id = existing.id)); applied++ }
                 }
             }
+
+            val current = db.shiftDao().getAll()
+            val idMap = HashMap<Long, Long>()
+            for (shift in data.shifts) {
+                val same = current.firstOrNull {
+                    it.name == shift.name && it.inMinutes == shift.inMinutes &&
+                        it.outMinutes == shift.outMinutes && it.daysMask == shift.daysMask
+                }
+                idMap[shift.id] = same?.id ?: db.shiftDao().insert(shift.copy(id = 0)).also { newShifts++ }
+            }
+            for (r in data.records) {
+                // ประวัติของตารางที่ถูกลบไปแล้วใช้ id ติดลบ กันไปชนกับตารางอื่นในเครื่องนี้
+                val shiftId = idMap[r.shiftId] ?: if (r.shiftId < 0) r.shiftId else -r.shiftId
+                if (db.recordDao().insertIgnore(r.copy(id = 0, shiftId = shiftId)) != -1L) newRecords++
+            }
         }
-        if (applied > 0) DiaryBackup.markDirty(context)
-        return applied to skipped
+        if (newShifts > 0) ReminderScheduler.rescheduleAll(context)
+        if (newShifts > 0 || newRecords > 0) TodayWidget.updateAll(context)
+        if (applied > 0 || newShifts > 0 || newRecords > 0) DiaryBackup.markDirty(context)
+        return ImportResult(applied, skipped, newShifts, newRecords)
     }
 }

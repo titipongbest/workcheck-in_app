@@ -10,11 +10,11 @@ import org.json.JSONObject
 import java.time.LocalDate
 
 /**
- * นำเข้า/ส่งออก บันทึกการทำงานเป็นไฟล์ JSON และสำรองอัตโนมัติลงโฟลเดอร์ที่ผู้ใช้เลือก
+ * นำเข้า/ส่งออก ข้อมูลทั้งแอป (บันทึกงาน + ตารางเวลา + ประวัติเช็คอิน) เป็นไฟล์ JSON ไฟล์เดียว และสำรองอัตโนมัติลงโฟลเดอร์ที่ผู้ใช้เลือก
  * (Storage Access Framework) ทุกครั้งที่ออกจากแอป ถ้ามีการเปลี่ยนแปลงตั้งแต่สำรองครั้งก่อน
  */
 object DiaryBackup {
-    const val BACKUP_FILE_NAME = "WorkCheckIn-worklog-backup.json"
+    const val BACKUP_FILE_NAME = "WorkCheckIn-backup.json"
     private const val PREFS = "diary_backup"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_TREE = "tree_uri"
@@ -83,8 +83,7 @@ object DiaryBackup {
     suspend fun backupNow(context: Context): String? {
         val p = prefs(context)
         val tree = p.getString(KEY_TREE, null)?.let(Uri::parse) ?: return "ยังไม่ได้เลือกโฟลเดอร์"
-        val logs = (context.applicationContext as App).repository.allWorkLogs()
-        val json = toJson(logs)
+        val json = toJson((context.applicationContext as App).repository.snapshot())
         val error = runCatching {
             val file = p.getString(KEY_FILE, null)?.let(Uri::parse)
             val written = file != null && runCatching { write(context, file, json) }.isSuccess
@@ -150,29 +149,106 @@ object DiaryBackup {
 
     // ---- รูปแบบไฟล์ ----
 
-    fun toJson(logs: List<WorkLog>): String {
-        val arr = JSONArray()
-        logs.sortedBy { it.epochDay }.forEach { log ->
-            arr.put(
+    /** ข้อมูลทั้งหมดในไฟล์สำรอง */
+    data class Snapshot(
+        val workLogs: List<WorkLog>,
+        val shifts: List<Shift> = emptyList(),
+        val records: List<CheckRecord> = emptyList(),
+    ) {
+        val isEmpty get() = workLogs.isEmpty() && shifts.isEmpty() && records.isEmpty()
+    }
+
+    fun toJson(data: Snapshot): String {
+        val logs = JSONArray()
+        data.workLogs.sortedBy { it.epochDay }.forEach { log ->
+            logs.put(
                 JSONObject()
                     .put("date", log.date.toString())
                     .put("text", log.text)
                     .put("updatedAt", log.updatedAtMillis)
             )
         }
+        val shifts = JSONArray()
+        data.shifts.forEach { s ->
+            shifts.put(
+                JSONObject()
+                    .put("id", s.id)
+                    .put("name", s.name)
+                    .put("inMinutes", s.inMinutes)
+                    .put("outMinutes", s.outMinutes)
+                    .put("daysMask", s.daysMask)
+                    .put("enabled", s.enabled)
+                    .put("followUpMinutes", s.followUpMinutes)
+                    .put("createdDate", LocalDate.ofEpochDay(s.createdEpochDay).toString())
+            )
+        }
+        val records = JSONArray()
+        data.records.sortedWith(compareBy({ it.epochDay }, { it.checkedAtMillis })).forEach { r ->
+            records.put(
+                JSONObject()
+                    .put("shiftId", r.shiftId)
+                    .put("shiftName", r.shiftName)
+                    .put("type", r.type.name)
+                    .put("date", LocalDate.ofEpochDay(r.epochDay).toString())
+                    .put("scheduledMinutes", r.scheduledMinutes)
+                    .put("checkedAt", r.checkedAtMillis)
+                    .put("skipped", r.skipped)
+            )
+        }
         return JSONObject()
             .put("app", "WorkCheckIn")
-            .put("kind", "worklog")
-            .put("version", 1)
+            .put("kind", "backup")
+            .put("version", 2)
             .put("exportedAt", System.currentTimeMillis())
-            .put("entries", arr)
+            .put("entries", logs)
+            .put("shifts", shifts)
+            .put("checkRecords", records)
             .toString(2)
     }
 
-    /** อ่านไฟล์ที่ส่งออกจากแอปนี้ (รับทั้งแบบ object ที่มี entries และ array ตรงๆ) */
-    fun fromJson(json: String): List<WorkLog> {
+    /** อ่านไฟล์ที่ส่งออกจากแอปนี้ (รองรับไฟล์บันทึกงานอย่างเดียวแบบเก่าด้วย) */
+    fun fromJson(json: String): Snapshot {
         val trimmed = json.trim()
-        val arr = if (trimmed.startsWith("[")) JSONArray(trimmed) else JSONObject(trimmed).getJSONArray("entries")
+        if (trimmed.startsWith("[")) return Snapshot(parseLogs(JSONArray(trimmed)))
+        val root = JSONObject(trimmed)
+        val logs = root.optJSONArray("entries")?.let(::parseLogs).orEmpty()
+        val shifts = root.optJSONArray("shifts")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                runCatching {
+                    Shift(
+                        id = o.getLong("id"),
+                        name = o.getString("name"),
+                        inMinutes = o.getInt("inMinutes"),
+                        outMinutes = o.getInt("outMinutes"),
+                        daysMask = o.getInt("daysMask"),
+                        enabled = o.optBoolean("enabled", true),
+                        followUpMinutes = o.optInt("followUpMinutes", 10),
+                        createdEpochDay = LocalDate.parse(o.getString("createdDate")).toEpochDay(),
+                    )
+                }.getOrNull()
+            }
+        }.orEmpty()
+        val records = root.optJSONArray("checkRecords")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                runCatching {
+                    CheckRecord(
+                        shiftId = o.getLong("shiftId"),
+                        shiftName = o.getString("shiftName"),
+                        type = CheckType.valueOf(o.getString("type")),
+                        epochDay = LocalDate.parse(o.getString("date")).toEpochDay(),
+                        scheduledMinutes = o.getInt("scheduledMinutes"),
+                        checkedAtMillis = o.getLong("checkedAt"),
+                        skipped = o.optBoolean("skipped", false),
+                    )
+                }.getOrNull()
+            }
+        }.orEmpty()
+        return Snapshot(logs, shifts, records)
+    }
+
+    private fun parseLogs(arr: JSONArray): List<WorkLog> {
         val now = System.currentTimeMillis()
         return (0 until arr.length()).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
