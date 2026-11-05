@@ -36,6 +36,9 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.SettingsBackupRestore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,6 +77,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,7 +127,11 @@ fun WorkLogScreen(
 ) {
     val logs by vm.logs.collectAsStateWithLifecycle()
     val filter by vm.filter.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
     var pickRange by remember { mutableStateOf(false) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val words = remember(query) { searchWords(query) }
 
     Scaffold(
         containerColor = Background,
@@ -140,9 +152,41 @@ fun WorkLogScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("บันทึกงาน", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = DarkBrown, modifier = Modifier.weight(1f))
+                IconButton(onClick = {
+                    if (searching) vm.setQuery("")
+                    searching = !searching
+                }) {
+                    Icon(
+                        if (searching) Icons.Outlined.SearchOff else Icons.Outlined.Search,
+                        contentDescription = if (searching) "ปิดการค้นหา" else "ค้นหา",
+                        tint = DarkBrown,
+                    )
+                }
                 IconButton(onClick = onData) {
                     Icon(Icons.Outlined.SettingsBackupRestore, contentDescription = "นำเข้า / ส่งออก / สำรองข้อมูล", tint = DarkBrown)
                 }
+            }
+            if (searching) {
+                LaunchedEffect(Unit) { focus.requestFocus() }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = vm::setQuery,
+                    placeholder = { Text("พิมพ์คำที่ต้องการค้นหา") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, null, tint = Muted) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { vm.setQuery("") }) { Icon(Icons.Outlined.Close, "ล้างคำค้น", tint = Muted) }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = Brown,
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp).focusRequester(focus),
+                )
             }
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -191,7 +235,8 @@ fun WorkLogScreen(
                 if (list != null && list.isEmpty()) {
                     item {
                         Text(
-                            if (filter.isFiltered) "ไม่มีบันทึกในช่วงวันที่นี้"
+                            if (words.isNotEmpty()) "ไม่พบบันทึกที่มีคำว่า \"${query.trim()}\""
+                            else if (filter.isFiltered) "ไม่มีบันทึกในช่วงวันที่นี้"
                             else "ยังไม่มีบันทึก กด \"เพิ่ม\" เพื่อจดว่าวันนี้ทำงานอะไรบ้าง",
                             color = Muted, fontSize = 16.sp, modifier = Modifier.padding(top = 24.dp, start = 4.dp),
                         )
@@ -206,7 +251,7 @@ fun WorkLogScreen(
                             modifier = Modifier.padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
                         )
                     }
-                    items(entries, key = { it.id }) { log -> LogRow(log, onClick = { onOpen(log.id) }) }
+                    items(entries, key = { it.id }) { log -> LogRow(log, words, onClick = { onOpen(log.id) }) }
                 }
             }
         }
@@ -226,7 +271,7 @@ fun WorkLogScreen(
 }
 
 @Composable
-private fun LogRow(log: WorkLog, onClick: () -> Unit) {
+private fun LogRow(log: WorkLog, highlight: List<String>, onClick: () -> Unit) {
     val isToday = log.date == LocalDate.now()
     Card(
         shape = RoundedCornerShape(18.dp),
@@ -247,11 +292,28 @@ private fun LogRow(log: WorkLog, onClick: () -> Unit) {
             Spacer(Modifier.width(14.dp))
             Text(
                 // รวมทุกบรรทัดเป็นข้อความต่อกัน ให้ตัวอย่างเต็มความสูงช่อง (เท่ากล่องวันที่)
-                log.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("  "),
+                previewText(log.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("  "), highlight),
                 fontSize = 15.sp, lineHeight = 22.sp, color = DarkBrown,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+        }
+    }
+}
+
+/** ตัวอย่างข้อความ: ถ้าค้นหาอยู่ เริ่มแสดงใกล้คำที่เจอและไฮไลต์ทุกคำ */
+private fun previewText(full: String, words: List<String>): AnnotatedString {
+    if (words.isEmpty()) return AnnotatedString(full)
+    val first = words.mapNotNull { w -> full.indexOf(w, ignoreCase = true).takeIf { it >= 0 } }.minOrNull() ?: 0
+    val text = if (first > 40) "…" + full.substring(first - 20) else full
+    return buildAnnotatedString {
+        append(text)
+        words.forEach { w ->
+            var i = text.indexOf(w, ignoreCase = true)
+            while (i >= 0) {
+                addStyle(SpanStyle(background = Peach, color = Rust, fontWeight = FontWeight.SemiBold), i, i + w.length)
+                i = text.indexOf(w, i + w.length, ignoreCase = true)
+            }
         }
     }
 }

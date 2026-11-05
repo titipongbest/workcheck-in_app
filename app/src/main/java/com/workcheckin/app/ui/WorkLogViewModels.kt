@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -43,6 +44,8 @@ data class LogFilter(val preset: RangePreset = RangePreset.ALL, val from: LocalD
     }
 }
 
+fun searchWords(q: String): List<String> = q.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+
 private val MinDate: LocalDate = LocalDate.of(1900, 1, 1)
 private val MaxDate: LocalDate = LocalDate.of(9999, 12, 31)
 
@@ -52,10 +55,22 @@ class WorkLogViewModel(app: Application) : AndroidViewModel(app) {
     private val _filter = MutableStateFlow(LogFilter())
     val filter: StateFlow<LogFilter> = _filter.asStateFlow()
 
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    /** บันทึกในช่วงวันที่ที่เลือก แล้วกรองด้วยคำค้น (ทุกคำต้องเจอ ไม่สนตัวพิมพ์เล็ก/ใหญ่) */
     @OptIn(ExperimentalCoroutinesApi::class)
     val logs: StateFlow<List<WorkLog>?> = _filter
         .flatMapLatest { repo.workLogs(it.from ?: MinDate, it.to ?: MaxDate) }
+        .combine(_query) { list, q ->
+            val words = searchWords(q)
+            if (words.isEmpty()) list else list.filter { log -> words.all { log.text.contains(it, ignoreCase = true) } }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setQuery(q: String) {
+        _query.value = q
+    }
 
     fun setPreset(preset: RangePreset) {
         _filter.value = LogFilter.of(preset)
