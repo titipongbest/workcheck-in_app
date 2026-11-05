@@ -46,3 +46,27 @@ interface RecordDao {
     @Query("DELETE FROM check_records WHERE shiftId = :shiftId AND epochDay = :epochDay AND type = :type")
     suspend fun delete(shiftId: Long, epochDay: Long, type: CheckType)
 }
+
+@Dao
+interface WorkLogDao {
+    @Query("SELECT * FROM work_logs WHERE epochDay BETWEEN :fromDay AND :toDay ORDER BY epochDay DESC")
+    fun observeRange(fromDay: Long, toDay: Long): Flow<List<WorkLog>>
+
+    @Query("SELECT * FROM work_logs WHERE id = :id")
+    fun observe(id: Long): Flow<WorkLog?>
+
+    @Query("SELECT * FROM work_logs ORDER BY epochDay")
+    suspend fun getAll(): List<WorkLog>
+
+    @Query("SELECT * FROM work_logs WHERE id = :id")
+    suspend fun get(id: Long): WorkLog?
+
+    @Query("SELECT * FROM work_logs WHERE epochDay = :epochDay LIMIT 1")
+    suspend fun forDay(epochDay: Long): WorkLog?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(log: WorkLog): Long
+
+    @Query("DELETE FROM work_logs WHERE id = :id")
+    suspend fun delete(id: Long)
+}

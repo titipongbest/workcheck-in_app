@@ -4,6 +4,7 @@ import android.content.Context
 import com.workcheckin.app.notify.Notifications
 import com.workcheckin.app.notify.ReminderScheduler
 import com.workcheckin.app.widget.TodayWidget
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 
@@ -79,5 +80,50 @@ class Repository(private val context: Context) {
     suspend fun uncheck(shiftId: Long, epochDay: Long, type: CheckType) {
         db.recordDao().delete(shiftId, epochDay, type)
         TodayWidget.updateAll(context)
+    }
+
+    // ---- บันทึกการทำงาน ----
+
+    fun workLogs(from: LocalDate, to: LocalDate): Flow<List<WorkLog>> =
+        db.workLogDao().observeRange(from.toEpochDay(), to.toEpochDay())
+
+    fun observeWorkLog(id: Long): Flow<WorkLog?> = db.workLogDao().observe(id)
+
+    suspend fun getWorkLog(id: Long): WorkLog? = db.workLogDao().get(id)
+
+    suspend fun workLogForDay(date: LocalDate): WorkLog? = db.workLogDao().forDay(date.toEpochDay())
+
+    suspend fun allWorkLogs(): List<WorkLog> = db.workLogDao().getAll()
+
+    /** บันทึก (1 รายการต่อวัน) ถ้า replacesId != 0 จะลบรายการเดิมที่ถูกย้ายวันออก */
+    suspend fun saveWorkLog(log: WorkLog, replacesId: Long = 0) {
+        db.withTransaction {
+            if (replacesId != 0L && replacesId != log.id) db.workLogDao().delete(replacesId)
+            db.workLogDao().upsert(log.copy(updatedAtMillis = System.currentTimeMillis()))
+        }
+        DiaryBackup.markDirty(context)
+    }
+
+    suspend fun deleteWorkLog(id: Long) {
+        db.workLogDao().delete(id)
+        DiaryBackup.markDirty(context)
+    }
+
+    /** รวมข้อมูลที่นำเข้า: วันที่ซ้ำจะเก็บรายการที่แก้ไขล่าสุด คืนค่า (เพิ่ม/อัปเดต, ข้าม) */
+    suspend fun importWorkLogs(logs: List<WorkLog>): Pair<Int, Int> {
+        var applied = 0
+        var skipped = 0
+        db.withTransaction {
+            for (log in logs) {
+                val existing = db.workLogDao().forDay(log.epochDay)
+                when {
+                    existing == null -> { db.workLogDao().upsert(log.copy(id = 0)); applied++ }
+                    existing.text == log.text || existing.updatedAtMillis >= log.updatedAtMillis -> skipped++
+                    else -> { db.workLogDao().upsert(log.copy(id = existing.id)); applied++ }
+                }
+            }
+        }
+        if (applied > 0) DiaryBackup.markDirty(context)
+        return applied to skipped
     }
 }
