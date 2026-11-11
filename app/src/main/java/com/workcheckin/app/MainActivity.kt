@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -29,7 +30,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.launch
+import com.workcheckin.app.data.DiaryBackup
 import com.workcheckin.app.ui.ProgressScreen
+import com.workcheckin.app.ui.WorkLogDataScreen
+import com.workcheckin.app.ui.WorkLogDetailScreen
+import com.workcheckin.app.ui.WorkLogEditScreen
+import com.workcheckin.app.ui.WorkLogScreen
 import com.workcheckin.app.ui.ShiftEditScreen
 import com.workcheckin.app.ui.ShiftsScreen
 import com.workcheckin.app.ui.TodayScreen
@@ -43,6 +50,15 @@ class MainActivity : ComponentActivity() {
             WorkCheckInTheme { AppRoot() }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        // สำรองบันทึกงานทุกครั้งที่ออกจากแอป (ถ้าเปิดสำรองอัตโนมัติไว้)
+        if (!isChangingConfigurations) {
+            val app = application as App
+            app.appScope.launch { DiaryBackup.autoBackup(app) }
+        }
+    }
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -50,6 +66,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     Tab("today", "วันนี้", Icons.Outlined.CheckCircle),
     Tab("progress", "ประวัติ", Icons.Outlined.BarChart),
+    Tab("worklog", "บันทึกงาน", Icons.Outlined.EditNote),
     Tab("shifts", "ตารางเวลา", Icons.Outlined.Schedule),
 )
 
@@ -95,6 +112,33 @@ private fun AppRoot() {
             composable("today") { TodayScreen(onAdd = { openEditor(0) }) }
             composable("progress") { ProgressScreen() }
             composable("shifts") { ShiftsScreen(onEdit = openEditor) }
+            composable("worklog") {
+                WorkLogScreen(
+                    onAdd = { nav.navigate("worklog/edit/0") },
+                    onOpen = { id -> nav.navigate("worklog/view/$id") },
+                    onData = { nav.navigate("worklog/data") },
+                )
+            }
+            composable(
+                "worklog/view/{id}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType }),
+            ) { entry ->
+                WorkLogDetailScreen(
+                    id = entry.arguments?.getLong("id") ?: 0,
+                    onEdit = { id -> nav.navigate("worklog/edit/$id") },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable(
+                "worklog/edit/{id}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType }),
+            ) { entry ->
+                WorkLogEditScreen(
+                    id = entry.arguments?.getLong("id") ?: 0,
+                    onDone = { nav.popBackStack() },
+                )
+            }
+            composable("worklog/data") { WorkLogDataScreen(onBack = { nav.popBackStack() }) }
             composable(
                 "edit/{id}",
                 arguments = listOf(navArgument("id") { type = NavType.LongType }),
