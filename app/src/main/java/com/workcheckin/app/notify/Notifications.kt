@@ -70,7 +70,6 @@ object Notifications {
         val isIn = type == CheckType.IN
         // หน้าตาแจ้งเตือนออกแบบเอง ให้ปุ่มโชว์ตลอดแม้ในแบบย่อ
         fun views(layout: Int) = RemoteViews(context.packageName, layout).apply {
-            setImageViewResource(R.id.badge, if (isIn) R.drawable.notif_badge_in else R.drawable.notif_badge_out)
             setTextViewText(R.id.btn_check, type.actionLabel())
             setInt(R.id.btn_check, "setBackgroundResource", if (isIn) R.drawable.notif_btn_in else R.drawable.notif_btn_out)
             setOnClickPendingIntent(R.id.btn_check, action(CheckActionReceiver.ACTION_CHECK))
